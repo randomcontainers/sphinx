@@ -1,0 +1,130 @@
+name: sphinx
+title: Sphinx
+summary: Builds documentation written in reStructuredText into HTML, LaTeX, ePub and man pages, with cross-references, search and API pages from Python docstrings.
+homepage: https://www.sphinx-doc.org/
+# Sphinx, the Python packages installed with it, and pip and the packages it
+# vendors. babel includes the Unicode CLDR data (Unicode-3.0), and most of
+# docutils is in the public domain. The license files of five sphinxcontrib
+# packages are in licenses/, because their wheels leave them out. The
+# docutils wheel also carries the GPL-3.0 text, which covers only an Emacs
+# mode that is not part of the wheel, so GPL-3.0 is not listed.
+license: BSD-2-Clause AND BSD-3-Clause AND MIT AND Apache-2.0 AND MPL-2.0 AND ISC AND PSF-2.0 AND 0BSD AND Unicode-3.0 AND LicenseRef-Public-Domain
+upstream:
+  source: pypi
+  project: sphinx
+  tag-pattern: '^(\d+\.\d+\.\d+)$'
+  version-template: '{1}'
+  versioning: semver
+  version: 9.1.0
+  cooldown: 24h
+  publisher: sphinx-doc/sphinx
+image:
+  entrypoint: [sphinx-build]
+  cmd: [-M, html, ., _build]
+  env: {PYTHONUNBUFFERED: "1"}
+test:
+  - |
+    sphinx-build --version > version.txt
+    if [ "$(cat version.txt)" != "sphinx-build $VERSION" ]; then
+      echo "expected sphinx-build $VERSION, got: $(cat version.txt)" >&2; exit 1
+    fi
+    # Five of these wheels ship no license file; the build adds theirs from licenses/.
+    licenses=/usr/local/share/randomcontainers/sphinx/licenses
+    for dist in alabaster sphinxcontrib-applehelp sphinxcontrib-devhelp sphinxcontrib-htmlhelp \
+        sphinxcontrib-jsmath sphinxcontrib-qthelp sphinxcontrib-serializinghtml; do
+      find "$licenses/$dist" -type f 2>/dev/null | grep -q . || { echo "no license files in $licenses/$dist" >&2; exit 1; }
+    done
+    # babel's CLDR license is not in its dist-info; the build copies it in.
+    cldr="$licenses/babel/locale-data/LICENSE.unicode"
+    grep -q 'UNICODE LICENSE V3' "$cldr" || { echo "$cldr is missing or is not the Unicode License v3" >&2; exit 1; }
+  - |
+    sphinx-quickstart -q -p Demo -a Tester -v 1 --no-makefile --no-batchfile docs > quickstart.log
+    sphinx-build -W -b html docs out > build.log
+    grep -q Demo out/index.html || { echo "out/index.html does not mention the project name Demo" >&2; exit 1; }
+    test -s out/searchindex.js || { echo "the build wrote no out/searchindex.js" >&2; exit 1; }
+  - |
+    # A 1x1 PNG. :scale: needs the image size, which Sphinx reads with imagesize;
+    # without it the build warns and -W makes that an error.
+    mkdir img
+    {
+      printf '\211\120\116\107\015\012\032\012'
+      printf '\000\000\000\015\111\110\104\122\000\000\000\001\000\000\000\001\010\006\000\000\000\037\025\304\211'
+      printf '\000\000\000\012\111\104\101\124\170\234\143\000\001\000\000\005\000\001\015\012\055\264'
+      printf '\000\000\000\000\111\105\116\104\256\102\140\202'
+    } > img/px.png
+    printf '%s\n' "project = 'Pixel'" > img/conf.py
+    printf '%s\n' Pixel ===== '' '.. image:: px.png' '   :scale: 200' > img/index.rst
+    sphinx-build -W -b html img img-out > img.log
+    cmp img/px.png img-out/_images/px.png
+    if ! grep -q 'width="2"' img-out/index.html || ! grep -q 'height="2"' img-out/index.html; then
+      echo "expected a 2x2 img tag, got:" >&2; grep 'px\.png' img-out/index.html >&2 || true; exit 1
+    fi
+  - |
+    # German labels come from Sphinx's message catalog, the month name from babel's
+    # CLDR data. SOURCE_DATE_EPOCH fixes |today| at 1970-10-08.
+    mkdir de
+    printf '%s\n' "project = 'Demo'" "today_fmt = '%B %Y'" > de/conf.py
+    printf '%s\n' Demo ==== '' 'Stand: |today|' > de/index.rst
+    SOURCE_DATE_EPOCH=24192000 sphinx-build -W -b html -D language=de de de-out > de.log
+    grep -qF '>Suche<' de-out/search.html || { echo "de-out/search.html has no German heading Suche" >&2; exit 1; }
+    if ! grep -qF 'Stand: Oktober 1970' de-out/index.html; then
+      echo "expected 'Stand: Oktober 1970', got:" >&2; grep -F 'Stand' de-out/index.html >&2 || true; exit 1
+    fi
+  - |
+    # The image's default command, run in the project directory.
+    cd docs || exit 1
+    sphinx-build -M html . _build > ../make-mode.log
+    test -s _build/html/index.html || { echo "sphinx-build -M html . _build wrote no docs/_build/html/index.html" >&2; exit 1; }
+  - |
+    printf 'T\n=\n\nHello *w*.\n' | rst2html > r.html
+    grep -q '<em>w</em>' r.html || { echo "rst2html output has no <em>w</em>" >&2; cat r.html >&2; exit 1; }
+  - |
+    for tool in sphinx-apidoc sphinx-autogen; do
+      "$tool" --version > "$tool-version.txt"
+      if [ "$(cat "$tool-version.txt")" != "$tool $VERSION" ]; then
+        echo "expected $tool $VERSION, got: $(cat "$tool-version.txt")" >&2; exit 1
+      fi
+    done
+    mkdir -p src/pkg
+    printf '"""A package."""\n' > src/pkg/__init__.py
+    printf 'def f():\n    """Return 1."""\n    return 1\n' > src/pkg/mod.py
+    sphinx-apidoc -q -o api src/pkg
+    test -s api/modules.rst || { echo "sphinx-apidoc wrote no api/modules.rst" >&2; exit 1; }
+    grep -q 'automodule:: pkg\.mod$' api/pkg.rst || { echo "api/pkg.rst does not document pkg.mod" >&2; exit 1; }
+    printf '%s\n' '.. autosummary::' '   :toctree: gen' '' '   json.dumps' > summary.rst
+    sphinx-autogen -o gen summary.rst > autogen.log
+    test -s gen/json.dumps.rst || { echo "sphinx-autogen wrote no gen/json.dumps.rst" >&2; exit 1; }
+examples:
+  - title: Build the HTML pages of the project in the current directory into _build/html
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/sphinx
+  - title: Build docs/ and fail on any warning
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/sphinx -W -b html docs docs/_build/html
+  - title: Start a new project in docs/
+    command: docker run --rm -it --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint sphinx-quickstart ghcr.io/randomcontainers/sphinx docs
+  - title: Write API pages for the package in src/mypackage
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint sphinx-apidoc ghcr.io/randomcontainers/sphinx -o docs/api src/mypackage
+  - title: Check the external links in docs/
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/sphinx -b linkcheck docs docs/_build/linkcheck
+combos:
+  - with: [graphviz]
+    default: true
+    base: graphviz
+    summary: Sphinx with Graphviz, for the graphviz and inheritance_diagram extensions.
+    test:
+      - |
+        mkdir gv
+        printf '%s\n' "project = 'Graphs'" \
+          "extensions = ['sphinx.ext.graphviz', 'sphinx.ext.inheritance_diagram']" \
+          "graphviz_output_format = 'svg'" > gv/conf.py
+        printf '%s\n' Graphs ====== '' '.. graphviz::' '' '   digraph { a -> b }' '' \
+          '.. inheritance-diagram:: collections.OrderedDict' > gv/index.rst
+        sphinx-build -W -b html gv gv-out > gv.log
+        for prefix in graphviz inheritance; do
+          found=
+          for svg in gv-out/_images/"$prefix"-*.svg; do
+            if [ -f "$svg" ] && grep -q '<svg' "$svg"; then found=1; fi
+          done
+          if [ -z "$found" ]; then
+            echo "no $prefix-*.svg with an <svg element in gv-out/_images:" >&2; ls gv-out/_images >&2 || true; exit 1
+          fi
+        done
