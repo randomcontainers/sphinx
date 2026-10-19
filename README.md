@@ -162,7 +162,7 @@ The wheels of sphinxcontrib-applehelp, sphinxcontrib-devhelp, sphinxcontrib-html
 
 `latest` also contains Graphviz, which is mainly licensed under the Eclipse Public License 2.0 (EPL-2.0). Its license files and corresponding source are described in the [graphviz repository](https://github.com/randomcontainers/graphviz#licenses).
 
-The files in this repository are available under the MIT license, see [LICENSE](LICENSE).
+The files in this repository are available under the MIT license, see [LICENSE](LICENSE), except the license texts in `licenses/`, which keep their own terms.
 
 ## Requesting a tool
 
