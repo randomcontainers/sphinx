@@ -15,7 +15,7 @@ upstream:
   tag-pattern: '^(\d+\.\d+\.\d+)$'
   version-template: '{1}'
   versioning: semver
-  version: 9.1.0
+  version: 9.1.1
   cooldown: 24h
   publisher: sphinx-doc/sphinx
 image:
